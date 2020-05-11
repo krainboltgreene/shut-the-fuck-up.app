@@ -1,41 +1,114 @@
 // Modules to control application life and create native browser window
-const {app, BrowserWindow} = require('electron')
-const path = require('path')
+const { app: application, BrowserWindow, screen, ipcMain } = require('electron');
+const path = require('path');
+const { menubar } = require('menubar');
+const DecibelMeter = require('decibel-meter');
 
-function createWindow () {
+function showWarning(display) {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+  const warningWindow = new BrowserWindow({
+    height: display.size.height,
+    width: display.size.width,
+    x: display.bounds.x + ((display.bounds.width - (display.size.width / 2)) / 2),
+    y: display.bounds.y + ((display.bounds.height - (display.size.height / 2)) / 2),
+    frame: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload-warning.js')
     }
   })
 
   // and load the index.html of the app.
-  mainWindow.loadFile('index.html')
-
-  // Open the DevTools.
-  // mainWindow.webContents.openDevTools()
+  warningWindow.loadFile('warning.html');
 }
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(createWindow)
+function showPreview(display) {
+  // Create the browser window.
+  const previewWindow = new BrowserWindow({
+    width: display.size.width / 2,
+    height: 100,
+    x: display.bounds.x + ((display.bounds.width - (display.size.width / 2)) / 2),
+    y: display.bounds.y + ((display.bounds.height - 100) / 2),
+    center: true,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-preview.js')
+    }
+  })
 
-// Quit when all windows are closed.
-app.on('window-all-closed', function () {
-  // On macOS it is common for applications and their menu bar
-  // to stay active until the user quits explicitly with Cmd + Q
-  if (process.platform !== 'darwin') app.quit()
+  // and load the index.html of the app.
+  previewWindow.loadFile('preview.html', { hash: `${display.id}` })
+}
+
+const applicationMenubar = menubar({
+  preloadWindow: true,
+  browserWindow: {
+    width: 300,
+    height: 500,
+    resizable: false,
+    movable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-menubar.js')
+    }
+  }
+});
+// applicationMenubar.on('after-create-window', () => applicationMenubar.window.openDevTools());
+let warning;
+let selectedDisplay;
+
+ipcMain.handle('log', (event, text) => {
+  console.log(text);
 })
 
-app.on('activate', function () {
-  // On macOS it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
+ipcMain.handle('show-all-displays', () => {
+  console.log("Showing all displays")
+  screen.getAllDisplays().forEach(showPreview)
 })
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+ipcMain.handle('set-selected-display', (event, displayId) => {
+  console.log(`Setting selected display to ${displayId}`)
+  selectedDisplay = screen.getAllDisplays().find((display) => display.id === displayId)
+})
+
+ipcMain.handle('show-warning', () => {
+  if (warning) {
+    console.log("Already warning")
+    return null;
+  }
+  if (!selectedDisplay) {
+    console.log("No selected display")
+    return null;
+  }
+
+  console.log("Showing warning")
+
+  warning = true
+
+  showWarning(selectedDisplay);
+
+  setTimeout(() => {
+    console.log("No longer warning")
+    warning = false
+  }, 3000)
+})
+
+ipcMain.handle('quit-application', () => {
+  console.log("Quitting application")
+  application.quit();
+})
+
+application.on('ready', () => {
+  console.log('application is ready');
+
+  applicationMenubar.on('ready', () => {
+    console.log('applicationMenubar is ready');
+  });
+});
+
+application.on('window-all-closed', () => {
+  console.log('application is quitting');
+  application.quit()
+})
